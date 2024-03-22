@@ -1,42 +1,59 @@
 const { io } = require("socket.io-client");
 let socketClientConnection;
+const logger = require('../utils/logger')('listener');
 
 const SPEAKER_URL = "ws://localhost:3000";
 
+let reconnectionAttempts = 0;
+const MAX_RECONNECTION_ATTEMPTS = 5;
+
 // Function to establish connection with the speaker
 function connectToSpeaker() {
+    if (reconnectionAttempts >= MAX_RECONNECTION_ATTEMPTS) {
+        logger.info('Max reconnection attempts reached. Please check the speaker.');
+        return;
+    }
+
     socketClientConnection = io(SPEAKER_URL, {
         reconnection: false // disable automatic reconnection
     });
 
     socketClientConnection.on('connect_error', (err) => {
-        console.log('Connection Error', err);
-        setTimeout(connectToSpeaker, 5000); // try to reconnect after 5 seconds
+        logger.info('Connection Error', err);
+        reconnectionAttempts++;
+        if (reconnectionAttempts < MAX_RECONNECTION_ATTEMPTS) {
+            setTimeout(connectToSpeaker, 5000); // try to reconnect after 5 seconds
+        } else {
+            logger.error('Max reconnection attempts reached. Please check the speaker.');
+        }
     });
 
     socketClientConnection.on('connect_timeout', () => {
-        console.log('Connection Timeout');
+        logger.error('Connection Timeout. Please check the speaker.');
     });
 
     socketClientConnection.on('error', (err) => {
-        console.log('Error', err);
-        throw err;
+        logger.error('Error', err);
     });
 
     socketClientConnection.on('disconnect', (reason) => {
-        console.log('Disconnected: ', reason);
+        logger.info('Disconnected: ', reason);
     });
 
     socketClientConnection.on('reconnect', () => {
-        console.log('Reconnected to speaker');
+        logger.info('Reconnected to speaker');
     });
 
+    // Reset reconnectionAttempts on successful connection
+    socketClientConnection.on('connect', () => {
+        logger.info('Connected to speaker');
+        reconnectionAttempts = 0; // reset reconnection attempts
+    });
+
+    // Process queue as soon as a new sentence is received
     socketClientConnection.on('sentence', (sentence, ack) => {
-        try {
-            processSentence(sentence, ack);
-        } catch (error) {
-            console.log('Error processing sentence - ', error.message);
-        }
+        sentenceQueue.push({sentence, ack});
+        processSentenceQueue();
     });
 }
 
@@ -79,7 +96,7 @@ function isValidSentence(sentence) {
 let lastReceivedTime = Date.now(); // time when the last sentence was received
 const MAX_DELAY = 5000; // maximum delay in milliseconds
 
-// Function to process the sentence queue
+// Function to process the sentence queue and adapt to the speaker's pace
 async function processSentenceQueue() {
     while (sentenceQueue.length > 0) {
         let {sentence, ack} = sentenceQueue.shift();
@@ -96,20 +113,24 @@ async function processSentenceQueue() {
 // Also includes a 10% chance of listener being distracted and pausing for 1 second
 async function processSentence(sentence, ack) {
     if (sentence === '----------') {
+        processSentenceQueue();
         return;
     }
 
-    if (!isValidSentence(sentence)) {
-        console.log('Invalid sentence: ' + sentence);
+    if (typeof sentence !== 'string' || !isValidSentence(sentence)) {
+        logger.info('Invalid sentence: ' + sentence);
+        processSentenceQueue();
         return;
     }
 
     const words = sentence.split('-----');
     let sentenceTranslation = [];
 
+    logger.info('Original Sentence: ' + sentence); // print the original sentence
+
     for (let word of words) {
         if (Math.random() < 0.1) { // 10% chance of listener being distracted
-            console.log('Listener is distracted...');
+            logger.info('Listener is distracted...');
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
         let translation;
@@ -124,27 +145,21 @@ async function processSentence(sentence, ack) {
         sentenceTranslation.push(translation);
     }
 
-    console.log('Translation: ' + sentenceTranslation.join(' '));
+    logger.info('Translation: ' + sentenceTranslation.join(' '));
     recentTranslations.push(sentenceTranslation.join(' '));
     if (recentTranslations.length > 10) {
         recentTranslations.shift();
     }
 
     if (typeof ack === 'function') {
-        console.log('Sending acknowledgement...');
         ack('received');
-        console.log('Message received. Acknowledgement sent.');
+        logger.info('Message received. Acknowledgement sent.');
     }
+
+    processSentenceQueue();
 }
 
 // Function to get recent translations
 function getRecentTranslations() {
     return recentTranslations;
 }
-
-// Process queue as soon as a new sentence is received
-socketClientConnection.on('sentence', (sentence, ack) => {
-    sentenceQueue.push({sentence, ack});
-    processSentenceQueue();
-});
-

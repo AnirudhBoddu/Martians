@@ -3,6 +3,7 @@ const express = require('express');
 const app = express();
 const http = require('http');
 const { Server } = require("socket.io");
+const logger = require('../utils/logger')('speaker');
 
 // List of words to form sentences
 const WORDS = [
@@ -37,10 +38,10 @@ let currentIndex = 0; // Initializing index for forming sentences
 // Function to handle client connection
 function handleConnection(socketServer) {
     socketServer.on('connection', (clientSocket) => {
-        console.log('*** A user connected ***');
-        clientSocket.on('disconnect', () => { console.log('*** A user disconnected ***'); });
+        logger.info('*** A user connected ***');
+        clientSocket.on('disconnect', () => { logger.info('*** A user disconnected ***'); });
         clientSocket.on('error', (err) => {
-            console.log('Socket Error', err);
+            logger.error('Socket Error', err);
             throw err;
         });
     });
@@ -49,7 +50,7 @@ function handleConnection(socketServer) {
 // Function to handle server errors
 function handleError(server) {
     server.on ('error', (err) => {
-        console.log('Server Error', err);
+        logger.error('Server Error', err);
         throw err;
     });
 }
@@ -72,7 +73,7 @@ function generateSentence() {
 // Function to validate a sentence
 function validateSentence(sentence) {
     if (typeof sentence !== 'string') {
-        console.log('Invalid sentence');
+        logger.info('Invalid sentence');
         return false;
     }
     return true;
@@ -80,13 +81,13 @@ function validateSentence(sentence) {
 
 // Function to emit a sentence
 function emitSentence(socketServer, sentence) {
-    console.log(`Emitting sentence: ${sentence}`);
+    logger.info(`Emitting sentence: ${sentence}`);
     socketServer.emit('sentence', sentence, (ack) => {
         if (sentence !== SENTENCE_SEPARATOR) {
             if (ack) {
-                console.log('Acknowledgement received by speaker.');
+                logger.info('Acknowledgement received by speaker.');
             } else {
-                console.log('Acknowledgement not received by speaker.');
+                logger.info('Acknowledgement not received by speaker.');
             }
         }
     });
@@ -96,7 +97,7 @@ function emitSentence(socketServer, sentence) {
 function emitSentences(socketServer) {
     setInterval(() => {
         if (Math.random() < 0.1) { // 10% chance of speaker choking
-            console.log('Speaker is choking...')
+            logger.info('Speaker is choking...')
             return;
         }
         let sentence = generateSentence();
@@ -112,7 +113,7 @@ function emitSentences(socketServer) {
 function startSpeaker() {
     const server = http.createServer(app);
     const socketServer = new Server(server);
-    server.listen(SERVER_PORT, () => { console.log(`Listening on *:${SERVER_PORT}`); });
+    server.listen(SERVER_PORT, () => { logger.info(`Listening on *:${SERVER_PORT}`); });
     handleConnection(socketServer);
     handleError(server);
     emitSentences(socketServer);
