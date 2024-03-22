@@ -61,10 +61,10 @@ function connectToSpeaker() {
         reconnectionAttempts = 0; // reset reconnection attempts
     });
 
-    // Process queue as soon as a new sentence is received
+    // Process queue as soon as a new sentence is received from the speaker
     socketClientConnection.on('sentence', (sentence, ack) => {
-        sentenceQueue.push({sentence, ack});
-        processSentenceQueue();
+    sentenceQueue.push({sentence, ack, isProcessed: false});
+    processSentenceQueue();
     });
 }
 
@@ -115,16 +115,26 @@ const MAX_DELAY = 5000; // maximum delay in milliseconds
  * Function to process the sentence queue and adapt to the speaker's pace.
  * It calculates the delay based on the time between the receipt of two sentences and introduces this delay before processing the next sentence.
  * It then calls processSentence function to process each sentence in the queue.
+ * If a sentence is not processed (due to the listener being distracted), it is pushed back to the end of the queue for reprocessing.
  */
 async function processSentenceQueue() {
     while (sentenceQueue.length > 0) {
-        let {sentence, ack} = sentenceQueue.shift();
+        let sentenceObj = sentenceQueue[0]; // get the first sentence object in the queue
+        if (!sentenceObj.isProcessed) {
+            await processSentence(sentenceObj, 0);
+        }
+        if (!sentenceObj.isProcessed) {
+            // if the sentence is still not processed, push it back to the end of the queue
+            sentenceQueue.push(sentenceQueue.shift());
+        } else {
+            // if the sentence is processed, remove it from the queue
+            sentenceQueue.shift();
+        }
         let now = Date.now();
         let delay = now - lastReceivedTime; // calculate delay based on the time between the receipt of two sentences
         delay = Math.min(delay, MAX_DELAY); // if the calculated delay exceeds the maximum delay, use the maximum delay instead
         lastReceivedTime = now;
         await new Promise(resolve => setTimeout(resolve, delay)); // introduce delay before processing the sentence
-        await processSentence(sentence, ack);
     }
 }
 
@@ -132,18 +142,23 @@ async function processSentenceQueue() {
  * Function to process a sentence at listener's end and send acknowledgement.
  * It checks if the sentence is valid and then translates it into English.
  * It also includes a 10% chance of listener being distracted and pausing for 1 second.
- * @param {string} sentence - The Martian sentence to process
- * @param {function} ack - The acknowledgement function to call after processing the sentence
+ * If the sentence is invalid or the listener gets distracted, the sentence is marked as processed and removed from the queue.
+ * @param {Object} sentenceObj - The object containing the Martian sentence to process, the acknowledgement function, and the processed status
+ * @param {string} sentenceObj.sentence - The Martian sentence to process
+ * @param {function} sentenceObj.ack - The acknowledgement function to call after processing the sentence
+ * @param {boolean} sentenceObj.isProcessed - The processed status of the sentence
+ * @param {number} index - The index of the sentence in the queue
  */
-async function processSentence(sentence, ack) {
+async function processSentence(sentenceObj, index) {
+    let {sentence, ack, isProcessed} = sentenceObj;
+
     if (sentence === '----------') {
-        processSentenceQueue();
         return;
     }
 
     if (typeof sentence !== 'string' || !isValidSentence(sentence)) {
         logger.info('Invalid sentence: ' + sentence);
-        processSentenceQueue();
+        sentenceQueue[index].isProcessed = true; // set isProcessed to true for invalid sentences
         return;
     }
 
@@ -156,6 +171,7 @@ async function processSentence(sentence, ack) {
         if (Math.random() < 0.1) { // 10% chance of listener being distracted
             logger.info('Listener is distracted...');
             await new Promise(resolve => setTimeout(resolve, 1000));
+            return;
         }
         let translation;
         if (translationCache.has(word)) {
@@ -180,7 +196,7 @@ async function processSentence(sentence, ack) {
         logger.info('Message received. Acknowledgement sent.');
     }
 
-    processSentenceQueue();
+    sentenceQueue[index].isProcessed = true; // set isProcessed to true after sentence is fully processed
 }
 
 /**
