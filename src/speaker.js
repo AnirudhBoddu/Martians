@@ -7,7 +7,7 @@
 const express = require('express');
 const app = express();
 const http = require('http');
-const { Server } = require("socket.io");
+const {Server} = require("socket.io");
 const logger = require('../utils/logger')('speaker');
 
 // List of words to form sentences
@@ -32,7 +32,7 @@ const WORDS = [
     "L--B----Z",
     "R--Z--L",
     "Z-Z-Z-Z",
-    "B-K--Z",
+    "B-K--Z", // Words added with no English translation to test unknown words case in listener
     "R--Z--Z",
     "A-BZ",
     "PQRS"
@@ -48,7 +48,9 @@ let currentIndex = 0; // Initializing index for forming sentences
 function handleConnection(socketServer) {
     socketServer.on('connection', (clientSocket) => {
         logger.info('*** A user connected ***');
-        clientSocket.on('disconnect', () => { logger.info('*** A user disconnected ***'); });
+        clientSocket.on('disconnect', () => {
+            logger.info('*** A user disconnected ***');
+        });
         clientSocket.on('error', (err) => {
             logger.error('Socket Error', err);
             throw err;
@@ -62,7 +64,7 @@ function handleConnection(socketServer) {
  * @param {object} server - The server object
  */
 function handleError(server) {
-    server.on ('error', (err) => {
+    server.on('error', (err) => {
         logger.error('Server Error', err);
         throw err;
     });
@@ -149,7 +151,9 @@ function emitSentences(socketServer) {
 function startSpeaker() {
     const server = http.createServer(app);
     const socketServer = new Server(server);
-    server.listen(SERVER_PORT, () => { logger.info(`Listening on *:${SERVER_PORT}`); });
+    server.listen(SERVER_PORT, () => {
+        logger.info(`Listening on *:${SERVER_PORT}`);
+    });
     handleConnection(socketServer);
     handleError(server);
     emitSentences(socketServer);

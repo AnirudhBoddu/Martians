@@ -4,7 +4,7 @@
  * @module listener
  */
 
-const { io } = require("socket.io-client");
+const {io} = require("socket.io-client");
 let socketClientConnection;
 const logger = require('../utils/logger')('listener');
 
