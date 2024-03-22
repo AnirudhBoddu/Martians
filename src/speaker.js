@@ -1,13 +1,10 @@
+// Importing required modules
 const express = require('express');
 const app = express();
 const http = require('http');
-const server = http.createServer(app);
 const { Server } = require("socket.io");
-const ioServer = new Server(server);
 
-// Waiting time between sentence emissions
-const INTERVAL_MS = 500;
-
+// List of words to form sentences
 const WORDS = [
     "B--B-K---Z",
     "BBKZ",
@@ -29,53 +26,97 @@ const WORDS = [
     "L--B----Z",
     "R--Z--L",
     "Z-Z-Z-Z",
-    "food",
-    "vomit",
-    "sleep",
+    "B-K--Z",
+    "R--Z--Z",
+    "A-BZ",
+    "PQRS"
 ];
 
-ioServer.on('connection', (clientSocket) => {
-    console.log('A user connected');
-    clientSocket.on('disconnect', () => { console.log('A user disconnected'); });
-    clientSocket.on('error', (err) => { console.log('Socket Error', err); });
-});
+let currentIndex = 0; // Initializing index for forming sentences
 
-server.on ('error', (err) => { console.log('Server Error', err); });
-server.listen(3000, () => { console.log('Listening on *:3000'); });
+// Function to handle client connection
+function handleConnection(socketServer) {
+    socketServer.on('connection', (clientSocket) => {
+        console.log('*** A user connected ***');
+        clientSocket.on('disconnect', () => { console.log('*** A user disconnected ***'); });
+        clientSocket.on('error', (err) => {
+            console.log('Socket Error', err);
+            throw err;
+        });
+    });
+}
 
-let currentIndex = 0;
+// Function to handle server errors
+function handleError(server) {
+    server.on ('error', (err) => {
+        console.log('Server Error', err);
+        throw err;
+    });
+}
 
-setInterval(() => {
-    try {
-        // Create a sentence of 5 words
-        let sentence = [];
-        for (let i = 0; i < 5; i++) {
-            sentence.push(WORDS[(currentIndex + i) % WORDS.length]);
-        }
-        sentence = sentence.join('-----');
+// Constants for sentence generation and server port
+const SENTENCE_LENGTH = 5;
+const WORD_SEPARATOR = '-----';
+const SENTENCE_SEPARATOR = '----------';
+const SERVER_PORT = 3000;
 
-        if (typeof sentence !== 'string') {
-            console.log('Invalid sentence');
-            throw new Error('Invalid sentence');
-        }
+// Function to generate a sentence
+function generateSentence() {
+    let sentence = [];
+    for (let i = 0; i < SENTENCE_LENGTH; i++) {
+        sentence.push(WORDS[(currentIndex + i) % WORDS.length]);
+    }
+    return sentence.join(WORD_SEPARATOR);
+}
 
-        // Emit the sentence to the client and wait for an acknowledgment
-        console.log(`Emitting sentence: ${sentence}`);
-        ioServer.emit('sentence', sentence, (ack) => {
+// Function to validate a sentence
+function validateSentence(sentence) {
+    if (typeof sentence !== 'string') {
+        console.log('Invalid sentence');
+        return false;
+    }
+    return true;
+}
+
+// Function to emit a sentence
+function emitSentence(socketServer, sentence) {
+    console.log(`Emitting sentence: ${sentence}`);
+    socketServer.emit('sentence', sentence, (ack) => {
+        if (sentence !== SENTENCE_SEPARATOR) {
             if (ack) {
                 console.log('Acknowledgement received by speaker.');
             } else {
                 console.log('Acknowledgement not received by speaker.');
             }
-        });
+        }
+    });
+}
 
-        // Emit 10 hyphens to separate sentences
-        console.log('----------');
-        ioServer.emit('sentence', '----------');
+// Function to emit sentences
+function emitSentences(socketServer) {
+    setInterval(() => {
+        if (Math.random() < 0.1) { // 10% chance of speaker choking
+            console.log('Speaker is choking...')
+            return;
+        }
+        let sentence = generateSentence();
+        if (validateSentence(sentence)) {
+            emitSentence(socketServer, sentence);
+            emitSentence(socketServer, SENTENCE_SEPARATOR);
+            currentIndex = (currentIndex + SENTENCE_LENGTH) % WORDS.length;
+        }
+    }, Math.random() * 500); // Random interval between 0 and 500ms to simulate slow and fast speakers
+}
 
-        // Increment the current index after every sentence emission
-        currentIndex = (currentIndex + 5) % WORDS.length;
-    } catch (error) {
-        console.log('Error emitting sentence', error);
-    }
-}, INTERVAL_MS);
+// Function to start the server
+function startSpeaker() {
+    const server = http.createServer(app);
+    const socketServer = new Server(server);
+    server.listen(SERVER_PORT, () => { console.log(`Listening on *:${SERVER_PORT}`); });
+    handleConnection(socketServer);
+    handleError(server);
+    emitSentences(socketServer);
+}
+
+// Start the speaker
+startSpeaker();
