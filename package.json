@@ -10,12 +10,7 @@
   "license": "public domain",
   "dependencies": {
     "express": "^4.18.1",
-    "socket.io": "^4.5.1"
-  },
-  "devDependencies": {
-    "chai": "^5.1.0",
-    "mocha": "^10.3.0",
-    "sinon": "^17.0.1",
+    "socket.io": "^4.5.1",
     "socket.io-client": "^4.7.5"
   }
 }

@@ -1,7 +1,48 @@
 const { io } = require("socket.io-client");
-const socketClient = io("ws://localhost:3000");
+let socketClientConnection;
 
-// Map of Martian sentences and their English translations
+const SPEAKER_URL = "ws://localhost:3000";
+
+// Function to establish connection with the speaker
+function connectToSpeaker() {
+    socketClientConnection = io(SPEAKER_URL, {
+        reconnection: false // disable automatic reconnection
+    });
+
+    socketClientConnection.on('connect_error', (err) => {
+        console.log('Connection Error', err);
+        setTimeout(connectToSpeaker, 5000); // try to reconnect after 5 seconds
+    });
+
+    socketClientConnection.on('connect_timeout', () => {
+        console.log('Connection Timeout');
+    });
+
+    socketClientConnection.on('error', (err) => {
+        console.log('Error', err);
+        throw err;
+    });
+
+    socketClientConnection.on('disconnect', (reason) => {
+        console.log('Disconnected: ', reason);
+    });
+
+    socketClientConnection.on('reconnect', () => {
+        console.log('Reconnected to speaker');
+    });
+
+    socketClientConnection.on('sentence', (sentence, ack) => {
+        try {
+            processSentence(sentence, ack);
+        } catch (error) {
+            console.log('Error processing sentence - ', error.message);
+        }
+    });
+}
+
+connectToSpeaker(); // connect to speaker when listener starts
+
+// Map of Martian words and their English translations
 const word_translations = {
     "B--B-K---Z": "food",
     "BBKZ": "vomit",
@@ -25,82 +66,85 @@ const word_translations = {
     "Z-Z-Z-Z": "sad"
 };
 
-// Create a queue to store incoming sentences
-const sentenceQueue = [];
+const sentenceQueue = []; // store sentences
+const translationCache = new Map(); // store translations
+const sentenceRegex = /^([BKRZL]-*)*[BKRZL](-----([BKRZL]-*)*[BKRZL])*$/; // regex to validate sentences
+const recentTranslations = []; // store recent translations
 
-// Create a cache to store translations for improved performance
-const translationCache = new Map();
+// Function to test if a sentence is valid based on the regex
+function isValidSentence(sentence) {
+    return sentenceRegex.test(sentence);
+}
+
+let lastReceivedTime = Date.now(); // time when the last sentence was received
+const MAX_DELAY = 5000; // maximum delay in milliseconds
 
 // Function to process the sentence queue
-function processSentenceQueue() {
-    if (sentenceQueue.length > 0) {
+async function processSentenceQueue() {
+    while (sentenceQueue.length > 0) {
         let {sentence, ack} = sentenceQueue.shift();
-        // Validate the sentence
-        if (typeof sentence !== 'string') {
-            console.log('Invalid sentence');
-            throw new Error('Invalid sentence');
-        }
-        // Check if the sentence is a string of 10 hyphens
-        if (sentence === '----------') {
-            return;
-        }
-
-        // Split the sentence into words
-        const words = sentence.split('-----');
-
-        // Translate each word and store the translations in cache for improved performance
-        const translations = words.map(word => {
-            if (translationCache.has(word)) {
-                // If the word's translation is in the cache, return it
-                return translationCache.get(word);
-            } else if (word in word_translations) {
-                // If the word matches a known Martian word, cache and return its English translation
-                const translation = word_translations[word];
-                translationCache.set(word, translation);
-                return translation;
-            } else {
-                // If the word is not recognized, return 'UNKNOWN'
-                return 'UNKNOWN';
-            }
-        });
-
-        // Join the translations into a single string and print it
-        console.log('Translation: '+ translations.join(' '));
-
-        // Acknowledge the sentence
-        if (typeof ack === 'function') {
-            console.log('Sending acknowledgement...');
-            ack('received');
-            console.log('Message received. Acknowledgement sent.');
-        }
+        let now = Date.now();
+        let delay = now - lastReceivedTime; // calculate delay based on the time between the receipt of two sentences
+        delay = Math.min(delay, MAX_DELAY); // if the calculated delay exceeds the maximum delay, use the maximum delay instead
+        lastReceivedTime = now;
+        await new Promise(resolve => setTimeout(resolve, delay)); // introduce delay before processing the sentence
+        await processSentence(sentence, ack);
     }
 }
 
-// Event listeners for the socket client
-socketClient.on('connect_error', (err) => {
-    console.log('Connection Error', err);
-});
-
-socketClient.on('connect_timeout', () => {
-    console.log('Connection Timeout');
-});
-
-socketClient.on('error', (err) => {
-    console.log('Error', err);
-});
-
-// Listen for sentences from the server and translate them
-socketClient.on('sentence', (sentence, ack) => {
-    try {
-        // Add the sentence to the queue
-        sentenceQueue.push({sentence, ack});
-
-        // Process the sentence queue
-        processSentenceQueue();
-    } catch (error) {
-        console.log('Error processing sentence', error);
+// Function to process a sentence at listener's end and send acknowledgement
+// Also includes a 10% chance of listener being distracted and pausing for 1 second
+async function processSentence(sentence, ack) {
+    if (sentence === '----------') {
+        return;
     }
+
+    if (!isValidSentence(sentence)) {
+        console.log('Invalid sentence: ' + sentence);
+        return;
+    }
+
+    const words = sentence.split('-----');
+    let sentenceTranslation = [];
+
+    for (let word of words) {
+        if (Math.random() < 0.1) { // 10% chance of listener being distracted
+            console.log('Listener is distracted...');
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        let translation;
+        if (translationCache.has(word)) {
+            translation = translationCache.get(word);
+        } else if (word in word_translations) {
+            translation = word_translations[word];
+            translationCache.set(word, translation);
+        } else {
+            translation = 'UNKNOWN';
+        }
+        sentenceTranslation.push(translation);
+    }
+
+    console.log('Translation: ' + sentenceTranslation.join(' '));
+    recentTranslations.push(sentenceTranslation.join(' '));
+    if (recentTranslations.length > 10) {
+        recentTranslations.shift();
+    }
+
+    if (typeof ack === 'function') {
+        console.log('Sending acknowledgement...');
+        ack('received');
+        console.log('Message received. Acknowledgement sent.');
+    }
+}
+
+// Function to get recent translations
+function getRecentTranslations() {
+    return recentTranslations;
+}
+
+// Process queue as soon as a new sentence is received
+socketClientConnection.on('sentence', (sentence, ack) => {
+    sentenceQueue.push({sentence, ack});
+    processSentenceQueue();
 });
 
-// Set an interval to process the sentence queue
-setInterval(processSentenceQueue, 1000);
