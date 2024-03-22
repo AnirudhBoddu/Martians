@@ -1,3 +1,9 @@
+/**
+ * This module is responsible for establishing a connection with a speaker via a WebSocket and processing Martian sentences received from the speaker.
+ * It translates Martian sentences into English and handles reconnection attempts in case of connection errors.
+ * @module listener
+ */
+
 const { io } = require("socket.io-client");
 let socketClientConnection;
 const logger = require('../utils/logger')('listener');
@@ -7,7 +13,12 @@ const SPEAKER_URL = "ws://localhost:3000";
 let reconnectionAttempts = 0;
 const MAX_RECONNECTION_ATTEMPTS = 5;
 
-// Function to establish connection with the speaker
+/**
+ * Function to establish connection with the speaker.
+ * If the maximum number of reconnection attempts is reached, it logs an error message and returns.
+ * It sets up event listeners for various socket events such as 'connect_error', 'connect_timeout', 'error', 'disconnect', 'reconnect', and 'connect'.
+ * It also sets up a listener for 'sentence' event to process incoming Martian sentences.
+ */
 function connectToSpeaker() {
     if (reconnectionAttempts >= MAX_RECONNECTION_ATTEMPTS) {
         logger.info('Max reconnection attempts reached. Please check the speaker.');
@@ -88,7 +99,11 @@ const translationCache = new Map(); // store translations
 const sentenceRegex = /^([BKRZL]-*)*[BKRZL](-----([BKRZL]-*)*[BKRZL])*$/; // regex to validate sentences
 const recentTranslations = []; // store recent translations
 
-// Function to test if a sentence is valid based on the regex
+/**
+ * Function to test if a sentence is valid based on the regex
+ * @param {string} sentence - The Martian sentence to validate
+ * @returns {boolean} - Returns true if the sentence is valid, false otherwise
+ */
 function isValidSentence(sentence) {
     return sentenceRegex.test(sentence);
 }
@@ -96,7 +111,11 @@ function isValidSentence(sentence) {
 let lastReceivedTime = Date.now(); // time when the last sentence was received
 const MAX_DELAY = 5000; // maximum delay in milliseconds
 
-// Function to process the sentence queue and adapt to the speaker's pace
+/**
+ * Function to process the sentence queue and adapt to the speaker's pace.
+ * It calculates the delay based on the time between the receipt of two sentences and introduces this delay before processing the next sentence.
+ * It then calls processSentence function to process each sentence in the queue.
+ */
 async function processSentenceQueue() {
     while (sentenceQueue.length > 0) {
         let {sentence, ack} = sentenceQueue.shift();
@@ -109,8 +128,13 @@ async function processSentenceQueue() {
     }
 }
 
-// Function to process a sentence at listener's end and send acknowledgement
-// Also includes a 10% chance of listener being distracted and pausing for 1 second
+/**
+ * Function to process a sentence at listener's end and send acknowledgement.
+ * It checks if the sentence is valid and then translates it into English.
+ * It also includes a 10% chance of listener being distracted and pausing for 1 second.
+ * @param {string} sentence - The Martian sentence to process
+ * @param {function} ack - The acknowledgement function to call after processing the sentence
+ */
 async function processSentence(sentence, ack) {
     if (sentence === '----------') {
         processSentenceQueue();
@@ -159,7 +183,10 @@ async function processSentence(sentence, ack) {
     processSentenceQueue();
 }
 
-// Function to get recent translations
+/**
+ * Function to get recent translations
+ * @returns {Array} - Returns an array of recent translations
+ */
 function getRecentTranslations() {
     return recentTranslations;
 }
